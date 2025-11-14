@@ -3,18 +3,21 @@ import { promises as fsp } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  casingLosslessConvertToSnake,
   ErrorStackable,
+  IdlProgram,
   idlProgramParse,
   IdlTypeFull,
   idlTypeFullJsonCodecExpression,
   idlTypeFullJsonCodecModule,
+  JsonValue,
   pubkeyFromBase58,
   Solana,
+  withErrorContext,
 } from "solana-kiss";
 
 program
   .name("solana-json-codec")
-  .showHelpAfterError()
   .description("Generate javascript JSON codecs for solana programs")
   .option(
     "-p, --program <PROGRAM_ADDRESS>",
@@ -32,7 +35,7 @@ program
 program
   .command("account-state")
   .description("Generate a JSON codec for an account's state")
-  .argument("<ACCOUNT_NAME>", "Name of the account")
+  .argument("[ACCOUNT_NAME]", "Name of the account", "?")
   .option("-f, --format <FORMAT>", "Choose output format")
   .action(async (accountName, options, command) => {
     const rootOptions = command.parent.opts();
@@ -43,15 +46,18 @@ program
     });
     const accountIdl = programIdl.accounts.get(accountName);
     if (accountIdl === undefined) {
-      throw new Error(`Program doens't have any account named: ${accountName}`);
+      throw new ErrorStackable(
+        `Program doens't have any account named: ${accountName}`,
+        new ErrorStackable("must match:", [...programIdl.accounts.keys()]),
+      );
     }
-    outputTypeJsonCodec(accountIdl.typeFull, options.format);
+    printTypeJsonCodec(accountIdl.typeFull, options.format);
   });
 
 program
   .command("event-payload")
   .description("Generate a JSON codec for an event's payload")
-  .argument("<EVENT_NAME>", "Name of the event")
+  .argument("[EVENT_NAME]", "Name of the event", "?")
   .option("-f, --format <FORMAT>", "Choose output format")
   .action(async (eventName, options, command) => {
     const rootOptions = command.parent.opts();
@@ -62,15 +68,18 @@ program
     });
     const eventIdl = programIdl.events.get(eventName);
     if (eventIdl === undefined) {
-      throw new Error(`Program doens't have any event named: ${eventName}`);
+      throw new ErrorStackable(
+        `Program doens't have any event named: ${eventName}`,
+        new ErrorStackable("must match:", [...programIdl.events.keys()]),
+      );
     }
-    outputTypeJsonCodec(eventIdl.typeFull, options.format);
+    printTypeJsonCodec(eventIdl.typeFull, options.format);
   });
 
 program
   .command("instruction-payload")
   .description("Generate a JSON codec for an instruction's payload")
-  .argument("<INSTRUCTION_NAME>", "Name of the instruction")
+  .argument("[INSTRUCTION_NAME]", "Name of the instruction", "?")
   .option("-f, --format <FORMAT>", "Choose output format")
   .action(async (instructionName, options, command) => {
     const rootOptions = command.parent.opts();
@@ -79,14 +88,16 @@ program
       solanaRpcUrl: rootOptions.rpc,
       programAddress: rootOptions.program,
     });
-    const instructionIdl = programIdl.instructions.get(instructionName);
+    const instructionIdl = programIdl.instructions.get(
+      casingLosslessConvertToSnake(instructionName),
+    );
     if (instructionIdl === undefined) {
-      // TODO - nicer debug to show which instructions are available
-      throw new Error(
+      throw new ErrorStackable(
         `Program doens't have any instruction named: ${instructionName}`,
+        new ErrorStackable("must match:", [...programIdl.instructions.keys()]),
       );
     }
-    outputTypeJsonCodec(
+    printTypeJsonCodec(
       IdlTypeFull.struct({ fields: instructionIdl.args.typeFullFields }),
       options.format,
     );
@@ -95,7 +106,7 @@ program
 program
   .command("instruction-result")
   .description("Generate a JSON codec for an instruction's result")
-  .argument("<INSTRUCTION_NAME>", "Name of the instruction")
+  .argument("[INSTRUCTION_NAME]", "Name of the instruction", "?")
   .option("-f, --format <FORMAT>", "Choose output format")
   .action(async (instructionName, options, command) => {
     const rootOptions = command.parent.opts();
@@ -104,31 +115,27 @@ program
       solanaRpcUrl: rootOptions.rpc,
       programAddress: rootOptions.program,
     });
-    const instructionIdl = programIdl.instructions.get(instructionName);
+    const instructionIdl = programIdl.instructions.get(
+      casingLosslessConvertToSnake(instructionName),
+    );
     if (instructionIdl === undefined) {
-      throw new Error(
+      throw new ErrorStackable(
         `Program doens't have any instruction named: ${instructionName}`,
+        new ErrorStackable("must match:", [...programIdl.instructions.keys()]),
       );
     }
-    outputTypeJsonCodec(instructionIdl.return.typeFull, options.format);
+    printTypeJsonCodec(instructionIdl.return.typeFull, options.format);
   });
 
-async function outputTypeJsonCodec(
+async function printTypeJsonCodec(
   typeFullIdl: IdlTypeFull,
   format: string | undefined,
 ) {
   if (format === "expression") {
-    const codeExpression = idlTypeFullJsonCodecExpression(
-      typeFullIdl,
-      new Set(),
-    );
-    console.log(codeExpression);
-    return;
+    return console.log(idlTypeFullJsonCodecExpression(typeFullIdl, new Set()));
   }
   if (format === undefined || format === "module") {
-    const codeModule = idlTypeFullJsonCodecModule(typeFullIdl, "jsonCodec");
-    console.log(codeModule);
-    return;
+    return console.log(idlTypeFullJsonCodecModule(typeFullIdl, "jsonCodec"));
   }
   throw new Error(
     `Unsupported output format: ${format} (expected "module"/"expression")`,
@@ -139,10 +146,15 @@ async function resolveProgramIdl(params: {
   idlUrlOrPath: string | undefined;
   solanaRpcUrl: string | undefined;
   programAddress: string | undefined;
-}) {
+}): Promise<IdlProgram> {
   if (params.idlUrlOrPath !== undefined) {
-    const programJson = await resolveUrlJson(params.idlUrlOrPath);
-    return idlProgramParse(programJson!);
+    const idlUrlOrPath = params.idlUrlOrPath;
+    return idlProgramParse(
+      await withErrorContext(
+        `Resolving IDL from URL: ${idlUrlOrPath}`,
+        async () => await resolveUrlJson(idlUrlOrPath),
+      ),
+    );
   }
   const solana = new Solana(params.solanaRpcUrl ?? "mainnet");
   if (params.programAddress === undefined) {
@@ -153,7 +165,7 @@ async function resolveProgramIdl(params: {
   );
 }
 
-export async function resolveUrlJson(urlOrPath: string) {
+export async function resolveUrlJson(urlOrPath: string): Promise<JsonValue> {
   try {
     let url = new URL(urlOrPath);
     if (url.protocol === "http:" || url.protocol === "https:") {
@@ -164,8 +176,7 @@ export async function resolveUrlJson(urlOrPath: string) {
       return await res.json();
     }
     if (url.protocol === "file:") {
-      const filePath = fileURLToPath(url);
-      return JSON.parse(await fsp.readFile(filePath, "utf8"));
+      return JSON.parse(await fsp.readFile(fileURLToPath(url), "utf8"));
     }
     throw new Error(`Unsupported URL protocol: ${url.protocol}`);
   } catch (errorByUrl) {
@@ -183,6 +194,5 @@ export async function resolveUrlJson(urlOrPath: string) {
 try {
   await program.parseAsync();
 } catch (error) {
-  console.error("❌", String(error), "\n");
-  program.help();
+  console.error(String(error));
 }
