@@ -1,6 +1,6 @@
 {
   "name": "solana-json-codec",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "bin": {
     "solana-json-codec": "./dist/cli.js"
