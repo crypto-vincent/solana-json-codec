@@ -1,0 +1,23 @@
+{
+  "name": "solana-json-codec",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "solana-json-codec": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "solana-kiss": "^0.1.17"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "prettier": "^3.5.3",
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}
