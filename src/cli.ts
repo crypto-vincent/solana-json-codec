@@ -18,21 +18,21 @@ program
   .description("Generate javascript JSON codecs for solana programs")
   .option(
     "-p, --program <PROGRAM_ADDRESS>",
-    "The program address to generate the JSON codec for",
+    "The program address to generate a JSON codec for",
   )
   .option(
     "-r, --rpc <RPC_URL_OR_MONIKER>",
-    "The RPC URL to use for fetching anchor IDLs",
+    "The RPC URL to use for fetching onchain anchor IDLs",
   )
   .option(
-    "-i, --idl <IDL_URL_OR_FILE>",
-    "The URL or file to use to fetch the program's IDL from",
+    "-i, --idl <IDL_URL_OR_PATH>",
+    "The URL or path to load the program's IDL from",
   );
 
 program
   .command("account-state")
-  .description("Generate the JSON codec for an account's state")
-  .argument("<ACCOUNT_NAME>", "The name of the account")
+  .description("Generate a JSON codec for an account's state")
+  .argument("<ACCOUNT_NAME>", "Name of the account")
   .option("-f, --format <FORMAT>", "Choose output format")
   .action(async (accountName, options, command) => {
     const rootOptions = command.parent.opts();
@@ -49,9 +49,28 @@ program
   });
 
 program
+  .command("event-payload")
+  .description("Generate a JSON codec for an event's payload")
+  .argument("<EVENT_NAME>", "Name of the event")
+  .option("-f, --format <FORMAT>", "Choose output format")
+  .action(async (eventName, options, command) => {
+    const rootOptions = command.parent.opts();
+    const programIdl = await resolveProgramIdl({
+      idlUrlOrPath: rootOptions.idl,
+      solanaRpcUrl: rootOptions.rpc,
+      programAddress: rootOptions.program,
+    });
+    const eventIdl = programIdl.events.get(eventName);
+    if (eventIdl === undefined) {
+      throw new Error(`Program doens't have any event named: ${eventName}`);
+    }
+    outputTypeJsonCodec(eventIdl.typeFull, options.format);
+  });
+
+program
   .command("instruction-payload")
-  .description("Generate the JSON codec for an instruction's payload")
-  .argument("<INSTRUCTION_NAME>", "The name of the instruction")
+  .description("Generate a JSON codec for an instruction's payload")
+  .argument("<INSTRUCTION_NAME>", "Name of the instruction")
   .option("-f, --format <FORMAT>", "Choose output format")
   .action(async (instructionName, options, command) => {
     const rootOptions = command.parent.opts();
@@ -62,6 +81,7 @@ program
     });
     const instructionIdl = programIdl.instructions.get(instructionName);
     if (instructionIdl === undefined) {
+      // TODO - nicer debug to show which instructions are available
       throw new Error(
         `Program doens't have any instruction named: ${instructionName}`,
       );
@@ -73,9 +93,9 @@ program
   });
 
 program
-  .command("instruction-return")
-  .description("Generate the JSON codec for an instruction's returned value")
-  .argument("<INSTRUCTION_NAME>", "The name of the instruction")
+  .command("instruction-result")
+  .description("Generate a JSON codec for an instruction's result")
+  .argument("<INSTRUCTION_NAME>", "Name of the instruction")
   .option("-f, --format <FORMAT>", "Choose output format")
   .action(async (instructionName, options, command) => {
     const rootOptions = command.parent.opts();
@@ -126,7 +146,7 @@ async function resolveProgramIdl(params: {
   }
   const solana = new Solana(params.solanaRpcUrl ?? "mainnet");
   if (params.programAddress === undefined) {
-    throw new Error("Program address or IDL URL is required");
+    throw new Error("Either --idl or --program must be specified");
   }
   return await solana.getOrLoadProgramIdl(
     pubkeyFromBase58(params.programAddress),
@@ -160,4 +180,9 @@ export async function resolveUrlJson(urlOrPath: string) {
   }
 }
 
-program.parse();
+try {
+  await program.parseAsync();
+} catch (error) {
+  console.error("❌", String(error), "\n");
+  program.help();
+}
