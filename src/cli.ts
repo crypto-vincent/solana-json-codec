@@ -1,8 +1,9 @@
 import { program } from "commander";
 import { promises as fsp } from "node:fs";
-import * as path from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  casingLosslessConvertToCamel,
   casingLosslessConvertToSnake,
   ErrorStackable,
   IdlProgram,
@@ -44,13 +45,11 @@ program
       solanaRpcUrl: rootOptions.rpc,
       programAddress: rootOptions.program,
     });
-    const accountIdl = programIdl.accounts.get(accountName);
-    if (accountIdl === undefined) {
-      throw new ErrorStackable(
-        `Program doens't have any account named: ${accountName}`,
-        new ErrorStackable("must match:", [...programIdl.accounts.keys()]),
-      );
-    }
+    const accountIdl = mapGetOrFail(
+      programIdl.accounts,
+      accountName,
+      "account",
+    );
     printTypeJsonCodec(accountIdl.typeFull, options.format);
   });
 
@@ -66,13 +65,7 @@ program
       solanaRpcUrl: rootOptions.rpc,
       programAddress: rootOptions.program,
     });
-    const eventIdl = programIdl.events.get(eventName);
-    if (eventIdl === undefined) {
-      throw new ErrorStackable(
-        `Program doens't have any event named: ${eventName}`,
-        new ErrorStackable("must match:", [...programIdl.events.keys()]),
-      );
-    }
+    const eventIdl = mapGetOrFail(programIdl.events, eventName, "event");
     printTypeJsonCodec(eventIdl.typeFull, options.format);
   });
 
@@ -88,15 +81,11 @@ program
       solanaRpcUrl: rootOptions.rpc,
       programAddress: rootOptions.program,
     });
-    const instructionIdl = programIdl.instructions.get(
-      casingLosslessConvertToSnake(instructionName),
+    const instructionIdl = mapGetOrFail(
+      programIdl.instructions,
+      instructionName,
+      "instruction",
     );
-    if (instructionIdl === undefined) {
-      throw new ErrorStackable(
-        `Program doens't have any instruction named: ${instructionName}`,
-        new ErrorStackable("must match:", [...programIdl.instructions.keys()]),
-      );
-    }
     printTypeJsonCodec(
       IdlTypeFull.struct({ fields: instructionIdl.args.typeFullFields }),
       options.format,
@@ -115,15 +104,11 @@ program
       solanaRpcUrl: rootOptions.rpc,
       programAddress: rootOptions.program,
     });
-    const instructionIdl = programIdl.instructions.get(
-      casingLosslessConvertToSnake(instructionName),
+    const instructionIdl = mapGetOrFail(
+      programIdl.instructions,
+      instructionName,
+      "instruction",
     );
-    if (instructionIdl === undefined) {
-      throw new ErrorStackable(
-        `Program doens't have any instruction named: ${instructionName}`,
-        new ErrorStackable("must match:", [...programIdl.instructions.keys()]),
-      );
-    }
     printTypeJsonCodec(instructionIdl.return.typeFull, options.format);
   });
 
@@ -137,9 +122,10 @@ async function printTypeJsonCodec(
   if (format === undefined || format === "module") {
     return console.log(idlTypeFullJsonCodecModule(typeFullIdl, "jsonCodec"));
   }
-  throw new Error(
-    `Unsupported output format: ${format} (expected "module"/"expression")`,
-  );
+  throwWithOptions(`Unsupported output format: ${format}`, [
+    "module (default)",
+    "expression",
+  ]);
 }
 
 async function resolveProgramIdl(params: {
@@ -165,7 +151,7 @@ async function resolveProgramIdl(params: {
   );
 }
 
-export async function resolveUrlJson(urlOrPath: string): Promise<JsonValue> {
+async function resolveUrlJson(urlOrPath: string): Promise<JsonValue> {
   try {
     let url = new URL(urlOrPath);
     if (url.protocol === "http:" || url.protocol === "https:") {
@@ -178,10 +164,14 @@ export async function resolveUrlJson(urlOrPath: string): Promise<JsonValue> {
     if (url.protocol === "file:") {
       return JSON.parse(await fsp.readFile(fileURLToPath(url), "utf8"));
     }
-    throw new Error(`Unsupported URL protocol: ${url.protocol}`);
+    throwWithOptions(`Unsupported URL protocol: ${url.protocol}`, [
+      "http",
+      "https",
+      "file",
+    ]);
   } catch (errorByUrl) {
     try {
-      return JSON.parse(await fsp.readFile(path.resolve(urlOrPath), "utf8"));
+      return JSON.parse(await fsp.readFile(resolve(urlOrPath), "utf8"));
     } catch (errorByPath) {
       throw new ErrorStackable(`Could not resolve URL: ${urlOrPath}`, [
         errorByUrl,
@@ -191,8 +181,44 @@ export async function resolveUrlJson(urlOrPath: string): Promise<JsonValue> {
   }
 }
 
+function mapGetOrFail<Value>(
+  map: Map<string, Value>,
+  key: string,
+  context: string,
+): Value {
+  const value = map.get(key);
+  if (value !== undefined) {
+    return value;
+  }
+  const keyCamel = casingLosslessConvertToCamel(key);
+  const valueCamel = map.get(keyCamel);
+  if (valueCamel !== undefined) {
+    return valueCamel;
+  }
+  const keySnake = casingLosslessConvertToSnake(key);
+  const valueSnake = map.get(keySnake);
+  if (valueSnake !== undefined) {
+    return valueSnake;
+  }
+  if (map.size === 0) {
+    throw new Error(`Program has no known ${context}s defined`);
+  }
+  throw new ErrorStackable(
+    `Program doesn't have any ${context} named: ${key}`,
+    [...map.keys()].map((k) => `Expected: ${k}`),
+  );
+}
+
+function throwWithOptions(message: string, options: string[]): never {
+  throw new ErrorStackable(
+    message,
+    options.map((opt) => `Expected: ${opt}`),
+  );
+}
+
 try {
   await program.parseAsync();
 } catch (error) {
   console.error(String(error));
+  process.exit(1);
 }
