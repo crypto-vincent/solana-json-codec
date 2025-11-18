@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   casingLosslessConvertToCamel,
   casingLosslessConvertToSnake,
-  ErrorStackable,
+  ErrorStack,
   IdlProgram,
   idlProgramParse,
   IdlTypeFull,
@@ -116,11 +116,11 @@ async function printTypeJsonCodec(
   typeFullIdl: IdlTypeFull,
   format: string | undefined,
 ) {
-  if (format === "expression") {
-    return console.log(idlTypeFullJsonCodecExpression(typeFullIdl, new Set()));
-  }
   if (format === undefined || format === "module") {
     return console.log(idlTypeFullJsonCodecModule(typeFullIdl, "jsonCodec"));
+  }
+  if (format === "expression") {
+    return console.log(idlTypeFullJsonCodecExpression(typeFullIdl, new Set()));
   }
   throwWithOptions(`Unsupported output format: ${format}`, [
     "module (default)",
@@ -146,9 +146,10 @@ async function resolveProgramIdl(params: {
   if (params.programAddress === undefined) {
     throw new Error("Either --idl or --program must be specified");
   }
-  return await solana.getOrLoadProgramIdl(
+  const { programIdl } = await solana.getOrLoadProgramIdl(
     pubkeyFromBase58(params.programAddress),
   );
+  return programIdl;
 }
 
 async function resolveUrlJson(urlOrPath: string): Promise<JsonValue> {
@@ -173,7 +174,7 @@ async function resolveUrlJson(urlOrPath: string): Promise<JsonValue> {
     try {
       return JSON.parse(await fsp.readFile(resolve(urlOrPath), "utf8"));
     } catch (errorByPath) {
-      throw new ErrorStackable(`Could not resolve URL: ${urlOrPath}`, [
+      throw new ErrorStack(`Could not resolve URL: ${urlOrPath}`, [
         errorByUrl,
         errorByPath,
       ]);
@@ -203,14 +204,14 @@ function mapGetOrFail<Value>(
   if (map.size === 0) {
     throw new Error(`Program has no known ${context}s defined`);
   }
-  throw new ErrorStackable(
+  throw new ErrorStack(
     `Program doesn't have any ${context} named: ${key}`,
     [...map.keys()].map((k) => `Expected: ${k}`),
   );
 }
 
 function throwWithOptions(message: string, options: string[]): never {
-  throw new ErrorStackable(
+  throw new ErrorStack(
     message,
     options.map((opt) => `Expected: ${opt}`),
   );
