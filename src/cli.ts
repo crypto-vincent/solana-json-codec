@@ -117,7 +117,7 @@ async function printTypeJsonCodec(
   format: string | undefined,
 ) {
   if (format === undefined || format === "module") {
-    return console.log(idlTypeFullJsonCodecModule(typeFullIdl, "jsonCodec"));
+    return console.log(idlTypeFullJsonCodecModule(typeFullIdl));
   }
   if (format === "expression") {
     return console.log(idlTypeFullJsonCodecExpression(typeFullIdl, new Set()));
