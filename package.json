@@ -1,9 +1,8 @@
 {
   "name": "solana-json-codec",
-  "version": "0.0.6",
-  "type": "module",
+  "version": "0.0.7",
   "bin": {
-    "solana-json-codec": "./dist/cli.js"
+    "solana-json-codec": "./dist/main.js"
   },
   "scripts": {
     "build": "tsup",

@@ -217,9 +217,13 @@ function throwWithOptions(message: string, options: string[]): never {
   );
 }
 
-try {
-  await program.parseAsync();
-} catch (error) {
-  console.error(String(error));
-  process.exit(1);
+async function main() {
+  try {
+    await program.parseAsync();
+  } catch (error) {
+    console.error(String(error));
+    process.exit(1);
+  }
 }
+
+main();
